@@ -10,15 +10,24 @@ export type ReconciliationStatus =
   | "missing_settlement"
   | "unexpected_settlement"
   | "amount_mismatch"
+  | "currency_mismatch"
   | "duplicate_payment"
-  | "ambiguous_match";
+  | "duplicate_settlement"
+  | "ambiguous_match"
+  | "unresolved_settlement";
 
 export type ReconciliationResult = {
   status: ReconciliationStatus;
   paymentId?: string;
   settlementId?: string;
+  candidateSettlementIds?: string[];
   reference: string;
   explanation: string;
+  reasonCode: string;
+  expectedAmountMinor?: number;
+  actualAmountMinor?: number;
+  differenceMinor?: number;
+  currency?: string;
 };
 
 export type ReconciliationReport = {
@@ -26,16 +35,26 @@ export type ReconciliationReport = {
   summary: Record<ReconciliationStatus, number>;
 };
 
+const statuses: ReconciliationStatus[] = [
+  "matched",
+  "missing_settlement",
+  "unexpected_settlement",
+  "amount_mismatch",
+  "currency_mismatch",
+  "duplicate_payment",
+  "duplicate_settlement",
+  "ambiguous_match",
+  "unresolved_settlement",
+];
+
 const compare = (a: string, b: string): number =>
   a < b ? -1 : a > b ? 1 : 0;
 
-function normalizeReference(reference: string): string {
-  return reference.trim().toUpperCase();
-}
+const normalizeReference = (value: string): string =>
+  value.trim().toUpperCase();
 
-function normalizeCurrency(currency: string): string {
-  return currency.trim().toUpperCase();
-}
+const normalizeCurrency = (value: string): string =>
+  value.trim().toUpperCase();
 
 function validateRecords(
   records: FinancialRecord[],
@@ -44,7 +63,7 @@ function validateRecords(
   const ids = new Set<string>();
 
   for (const record of records) {
-    if (!record.id.trim()) {
+    if (typeof record.id !== "string" || !record.id.trim()) {
       throw new Error(`${source}: record ID cannot be empty`);
     }
 
@@ -54,7 +73,10 @@ function validateRecords(
 
     ids.add(record.id);
 
-    if (!record.reference.trim()) {
+    if (
+      typeof record.reference !== "string" ||
+      !record.reference.trim()
+    ) {
       throw new Error(`${source}: reference cannot be empty`);
     }
 
@@ -62,10 +84,29 @@ function validateRecords(
       throw new Error(`${source}: amountMinor must be a safe integer`);
     }
 
-    if (!/^[A-Z]{3}$/.test(normalizeCurrency(record.currency))) {
+    if (
+      typeof record.currency !== "string" ||
+      !/^[A-Z]{3}$/.test(normalizeCurrency(record.currency))
+    ) {
       throw new Error(`${source}: invalid currency`);
     }
   }
+}
+
+function groupByReference(
+  records: FinancialRecord[],
+): Map<string, FinancialRecord[]> {
+  const groups = new Map<string, FinancialRecord[]>();
+
+  for (const record of records) {
+    const reference = normalizeReference(record.reference);
+    const group = groups.get(reference) ?? [];
+
+    group.push(record);
+    groups.set(reference, group);
+  }
+
+  return groups;
 }
 
 export function reconcile(
@@ -83,96 +124,132 @@ export function reconcile(
     compare(a.id, b.id),
   );
 
+  const paymentGroups = groupByReference(sortedPayments);
+  const settlementGroups = groupByReference(sortedSettlements);
+
   const results: ReconciliationResult[] = [];
-  const usedSettlementIds = new Set<string>();
 
-  const paymentReferenceCounts = new Map<string, number>();
-
-  for (const payment of sortedPayments) {
-    const reference = normalizeReference(payment.reference);
-
-    paymentReferenceCounts.set(
-      reference,
-      (paymentReferenceCounts.get(reference) ?? 0) + 1,
-    );
-  }
+  const consumed = new Set<string>();
+  const reserved = new Set<string>();
 
   for (const payment of sortedPayments) {
     const reference = normalizeReference(payment.reference);
     const currency = normalizeCurrency(payment.currency);
 
-    if ((paymentReferenceCounts.get(reference) ?? 0) > 1) {
+    const paymentsWithReference =
+      paymentGroups.get(reference) ?? [];
+
+    const settlementsWithReference =
+      settlementGroups.get(reference) ?? [];
+
+    const candidates = settlementsWithReference.filter(
+      (settlement) => !consumed.has(settlement.id),
+    );
+
+    if (paymentsWithReference.length > 1) {
+      for (const settlement of candidates) {
+        reserved.add(settlement.id);
+      }
+
       results.push({
         status: "duplicate_payment",
+        reasonCode: "DUPLICATE_PAYMENT_REFERENCE",
         paymentId: payment.id,
         reference,
-        explanation: `Multiple payment records use reference ${reference}. Manual investigation is required.`,
+        candidateSettlementIds: candidates.map((s) => s.id),
+        explanation:
+          `Payment ${payment.id} shares reference ${reference} ` +
+          "with another payment. Automatic matching was blocked.",
       });
 
       continue;
     }
 
-    const candidates = sortedSettlements.filter(
+    const matchingCurrency = candidates.filter(
       (settlement) =>
-        normalizeReference(settlement.reference) === reference &&
-        normalizeCurrency(settlement.currency) === currency &&
-        !usedSettlementIds.has(settlement.id),
+        normalizeCurrency(settlement.currency) === currency,
     );
 
-    const exactMatches = candidates.filter(
-      (settlement) =>
-        settlement.amountMinor === payment.amountMinor,
-    );
+    if (matchingCurrency.length > 1) {
+      for (const settlement of matchingCurrency) {
+        reserved.add(settlement.id);
+      }
 
-    if (exactMatches.length > 1) {
       results.push({
         status: "ambiguous_match",
+        reasonCode: "MULTIPLE_SETTLEMENT_CANDIDATES",
         paymentId: payment.id,
         reference,
-        explanation: `Multiple settlements match payment ${payment.id}. Automatic reconciliation was not performed.`,
+        currency,
+        candidateSettlementIds: matchingCurrency.map((s) => s.id),
+        explanation:
+          `Payment ${payment.id} has multiple settlement candidates. ` +
+          "No automatic match was made.",
       });
 
       continue;
     }
 
-    if (exactMatches.length === 1) {
-      const settlement = exactMatches[0];
+    if (matchingCurrency.length === 1) {
+      const settlement = matchingCurrency[0];
 
-      usedSettlementIds.add(settlement.id);
+      if (payment.amountMinor === settlement.amountMinor) {
+        consumed.add(settlement.id);
 
-      results.push({
-        status: "matched",
-        paymentId: payment.id,
-        settlementId: settlement.id,
-        reference,
-        explanation: `Payment ${payment.id} matches settlement ${settlement.id} by reference, currency, and amount.`,
-      });
+        results.push({
+          status: "matched",
+          reasonCode: "EXACT_MATCH",
+          paymentId: payment.id,
+          settlementId: settlement.id,
+          reference,
+          currency,
+          expectedAmountMinor: payment.amountMinor,
+          actualAmountMinor: settlement.amountMinor,
+          differenceMinor: 0,
+          explanation:
+            `Payment ${payment.id} matches settlement ` +
+            `${settlement.id} by reference, currency and amount.`,
+        });
 
-      continue;
-    }
+        continue;
+      }
 
-    if (candidates.length === 1) {
-      const settlement = candidates[0];
-
-      usedSettlementIds.add(settlement.id);
+      reserved.add(settlement.id);
 
       results.push({
         status: "amount_mismatch",
+        reasonCode: "AMOUNT_DIFFERENCE",
         paymentId: payment.id,
         settlementId: settlement.id,
         reference,
-        explanation: `Payment amount ${payment.amountMinor} differs from settlement amount ${settlement.amountMinor} in ${currency} minor units.`,
+        currency,
+        expectedAmountMinor: payment.amountMinor,
+        actualAmountMinor: settlement.amountMinor,
+        differenceMinor:
+          payment.amountMinor - settlement.amountMinor,
+        explanation:
+          `Payment ${payment.id} and settlement ${settlement.id} ` +
+          `share reference ${reference}, but their amounts differ.`,
       });
 
       continue;
     }
 
-    if (candidates.length > 1) {
+    if (candidates.length > 0) {
+      for (const settlement of candidates) {
+        reserved.add(settlement.id);
+      }
+
       results.push({
-        status: "ambiguous_match",
+        status: "currency_mismatch",
+        reasonCode: "CURRENCY_DIFFERENCE",
         paymentId: payment.id,
         reference,
-        explanation: `Multiple settlements share reference ${reference}, but none has the expected amount.`,
+        currency,
+        candidateSettlementIds: candidates.map((s) => s.id),
+        explanation:
+          `Payment ${payment.id} has settlement candidates ` +
+          `for reference ${reference}, but none uses ${currency}.`,
       });
 
       continue;
@@ -180,31 +257,92 @@ export function reconcile(
 
     results.push({
       status: "missing_settlement",
+      reasonCode: "NO_SETTLEMENT_FOUND",
       paymentId: payment.id,
       reference,
-      explanation: `No settlement was found for payment ${payment.id} with matching reference and currency.`,
+      currency,
+      expectedAmountMinor: payment.amountMinor,
+      explanation:
+        `No settlement was found for payment ${payment.id}.`,
     });
   }
 
+  const settlementDuplicateCounts = new Map<string, number>();
+
   for (const settlement of sortedSettlements) {
-    if (!usedSettlementIds.has(settlement.id)) {
-      results.push({
-        status: "unexpected_settlement",
-        settlementId: settlement.id,
-        reference: normalizeReference(settlement.reference),
-        explanation: `Settlement ${settlement.id} was not reconciled to a payment.`,
-      });
-    }
+    const key = JSON.stringify([
+      normalizeReference(settlement.reference),
+      normalizeCurrency(settlement.currency),
+      settlement.amountMinor,
+    ]);
+
+    settlementDuplicateCounts.set(
+      key,
+      (settlementDuplicateCounts.get(key) ?? 0) + 1,
+    );
   }
 
-  const summary: Record<ReconciliationStatus, number> = {
-    matched: 0,
-    missing_settlement: 0,
-    unexpected_settlement: 0,
-    amount_mismatch: 0,
-    duplicate_payment: 0,
-    ambiguous_match: 0,
-  };
+  for (const settlement of sortedSettlements) {
+    if (consumed.has(settlement.id)) {
+      continue;
+    }
+
+    const reference = normalizeReference(settlement.reference);
+    const currency = normalizeCurrency(settlement.currency);
+
+    const key = JSON.stringify([
+      reference,
+      currency,
+      settlement.amountMinor,
+    ]);
+
+    if ((settlementDuplicateCounts.get(key) ?? 0) > 1) {
+      results.push({
+        status: "duplicate_settlement",
+        reasonCode: "DUPLICATE_SETTLEMENT_RECORD",
+        settlementId: settlement.id,
+        reference,
+        currency,
+        actualAmountMinor: settlement.amountMinor,
+        explanation:
+          `Settlement ${settlement.id} shares its reference, ` +
+          "currency and amount with another settlement record.",
+      });
+
+      continue;
+    }
+
+    if (reserved.has(settlement.id)) {
+      results.push({
+        status: "unresolved_settlement",
+        reasonCode: "SETTLEMENT_REQUIRES_REVIEW",
+        settlementId: settlement.id,
+        reference,
+        currency,
+        actualAmountMinor: settlement.amountMinor,
+        explanation:
+          `Settlement ${settlement.id} is associated with ` +
+          "an unresolved reconciliation discrepancy.",
+      });
+
+      continue;
+    }
+
+    results.push({
+      status: "unexpected_settlement",
+      reasonCode: "NO_PAYMENT_FOUND",
+      settlementId: settlement.id,
+      reference,
+      currency,
+      actualAmountMinor: settlement.amountMinor,
+      explanation:
+        `Settlement ${settlement.id} has no reconciled payment.`,
+    });
+  }
+
+  const summary = Object.fromEntries(
+    statuses.map((status) => [status, 0]),
+  ) as Record<ReconciliationStatus, number>;
 
   for (const result of results) {
     summary[result.status]++;

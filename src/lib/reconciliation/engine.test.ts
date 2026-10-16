@@ -73,7 +73,7 @@ describe("Ledgoryx reconciliation engine", () => {
     );
 
     expect(report.summary.ambiguous_match).toBe(1);
-    expect(report.summary.unexpected_settlement).toBe(2);
+    expect(report.summary.unexpected_settlement).toBe(0);
   });
 
   it("does not match different currencies", () => {
@@ -83,7 +83,7 @@ describe("Ledgoryx reconciliation engine", () => {
     );
 
     expect(report.summary.matched).toBe(0);
-    expect(report.summary.missing_settlement).toBe(1);
+    expect(report.summary.currency_mismatch).toBe(1);
   });
 
   it("normalizes reference casing and whitespace", () => {
