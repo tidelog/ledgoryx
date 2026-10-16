@@ -8,3 +8,6 @@ coverage/
 !.env.example
 .DS_Store
 *.log
+
+tsconfig.tsbuildinfo
+*.tsbuildinfo
