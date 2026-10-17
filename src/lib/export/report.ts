@@ -24,6 +24,14 @@ function safeCSVCell(value: unknown): string {
     return '""';
   }
 
+  if (typeof value === "number") {
+    if (!Number.isSafeInteger(value)) {
+      throw new Error("Export contains an unsafe monetary value");
+    }
+
+    return `"${value}"`;
+  }
+
   let text = String(value);
 
   if (/^[\s\u0000-\u001f]*[=+\-@]/u.test(text)) {

@@ -374,9 +374,11 @@ export function ReconciliationDashboard() {
 
   const settlementIssues = report
     ? report.summary.unexpected_settlement +
-      report.summary.duplicate_settlement +
-      report.summary.unresolved_settlement
+      report.summary.duplicate_settlement
     : 0;
+
+  const linkedSettlementRows =
+    report?.summary.unresolved_settlement ?? 0;
 
   const totalPayments = payments?.validRows ?? 0;
 
@@ -627,7 +629,7 @@ export function ReconciliationDashboard() {
                   </h2>
                   <p className="mt-1 text-sm text-slate-400">
                     {report
-                      ? `${report.results.length} results · ${settlementIssues} settlement exceptions`
+                      ? `${report.results.length} investigation rows · ${settlementIssues} independent settlement exceptions · ${linkedSettlementRows} linked settlement rows`
                       : "Run a reconciliation to inspect transaction results"}
                   </p>
                 </div>

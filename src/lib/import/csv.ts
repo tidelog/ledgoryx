@@ -139,6 +139,24 @@ export function importCSV(
     throw new Error("Duplicate CSV headers");
   }
 
+  const allowedHeaders = new Set([
+    "id",
+    "reference",
+    "currency",
+    "amount",
+    "amount_minor",
+  ]);
+
+  const unsupportedHeaders = headers.filter(
+    (header) => !allowedHeaders.has(header),
+  );
+
+  if (unsupportedHeaders.length > 0) {
+    throw new Error(
+      `Unsupported CSV columns: ${unsupportedHeaders.join(", ")}`,
+    );
+  }
+
   const hasAmount = headers.includes("amount");
   const hasMinor = headers.includes("amount_minor");
 
