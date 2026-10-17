@@ -1,0 +1,45 @@
+name: Bug report
+description: Report a reproducible Ledgoryx defect
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: "Do not include real financial records, credentials, or security exploit details."
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: Explain the unexpected behavior.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Use synthetic data only.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+  - type: dropdown
+    id: area
+    attributes:
+      label: Component
+      options:
+        - Reconciliation engine
+        - CSV import
+        - Report export
+        - Dashboard
+        - Docker deployment
+        - Documentation
+        - Other

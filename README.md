@@ -133,3 +133,51 @@ appropriate authentication or network access controls.
 
 Do not expose financial investigation interfaces directly to the public
 internet without suitable safeguards.
+
+## Open-source project
+
+Ledgoryx is an open-source, self-hosted financial reconciliation and discrepancy investigation application.
+
+**Repository:** https://github.com/tidelog/ledgoryx
+
+**License:** MIT
+
+### Current capabilities
+
+- Deterministic payment and settlement reconciliation.
+- Financial amount matching using integer minor units.
+- CSV imports with input validation.
+- Duplicate and ambiguous record detection.
+- Explainable discrepancy investigation.
+- Interactive dashboard and demo dataset.
+- Searchable investigation results.
+- CSV and JSON financial report exports.
+- Docker-based self-hosting.
+
+### Architecture
+
+Ledgoryx uses Next.js, TypeScript, React, Tailwind CSS, and a deterministic reconciliation engine.
+
+Imported CSV files are processed in the browser. The current application does not require a database or server-side transaction storage.
+
+The production application can be deployed through Docker Compose.
+
+### Project status
+
+Ledgoryx is under active development.
+
+The current version is an early-stage engineering release and should be evaluated with synthetic or non-sensitive financial datasets before any production adoption.
+
+Planned improvements include broader reconciliation integrations, enhanced investigation workflows, and programmatic interfaces.
+
+### Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development instructions and contribution guidelines.
+
+### Security
+
+See [SECURITY.md](SECURITY.md) for vulnerability reporting guidance and security boundaries.
+
+### License
+
+Distributed under the MIT License. See [LICENSE](LICENSE).
