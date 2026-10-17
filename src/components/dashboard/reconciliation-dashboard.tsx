@@ -4,6 +4,12 @@ import { useMemo, useState } from "react";
 import type { ChangeEvent } from "react";
 
 import {
+  exportReportCSV,
+  exportReportJSON,
+  getReportExportFilename,
+} from "@/lib/export/report";
+
+import {
   importCSV,
   type CSVImportResult,
   type CSVSource,
@@ -285,6 +291,54 @@ export function ReconciliationDashboard() {
     }
   }
 
+
+  function downloadReport(
+    format: "csv" | "json",
+    discrepanciesOnly = false,
+  ) {
+    if (!report) return;
+
+    try {
+      const content =
+        format === "json"
+          ? exportReportJSON(report)
+          : exportReportCSV(report, discrepanciesOnly);
+
+      const mimeType =
+        format === "json"
+          ? "application/json;charset=utf-8"
+          : "text/csv;charset=utf-8";
+
+      const blob = new Blob([content], { type: mimeType });
+      const url = URL.createObjectURL(blob);
+
+      const link = document.createElement("a");
+
+      link.href = url;
+      link.download = getReportExportFilename(
+        format,
+        discrepanciesOnly,
+      );
+
+      document.body.appendChild(link);
+
+      try {
+        link.click();
+      } finally {
+        link.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+
+      setError("");
+    } catch (cause) {
+      setError(
+        cause instanceof Error
+          ? cause.message
+          : "Report export failed",
+      );
+    }
+  }
+
   const filteredResults = useMemo(() => {
     if (!report) return [];
 
@@ -506,6 +560,64 @@ export function ReconciliationDashboard() {
                 />
               </div>
             </section>
+
+
+            {report && (
+              <section className="mt-10 rounded-2xl border border-white/10 bg-[#111827] p-6">
+                <div className="flex flex-wrap items-start justify-between gap-5">
+                  <div>
+                    <div className="mb-3 inline-flex items-center rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-medium text-emerald-300">
+                      REPORT READY
+                    </div>
+
+                    <h2 className="text-lg font-semibold text-white">
+                      Export reconciliation report
+                    </h2>
+
+                    <p className="mt-2 max-w-xl text-sm leading-6 text-slate-400">
+                      Download results for auditing, reporting, or further
+                      investigation. Files are generated in your browser.
+                    </p>
+                  </div>
+
+                  <span className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-400">
+                    {report.results.length} investigation results
+                  </span>
+                </div>
+
+                <div className="mt-6 grid gap-3 sm:grid-cols-3">
+                  <button
+                    type="button"
+                    onClick={() => downloadReport("csv")}
+                    className="rounded-xl bg-indigo-500 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-400"
+                  >
+                    ↓ Export CSV
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadReport("json")}
+                    className="rounded-xl border border-white/15 bg-white/5 px-4 py-3 text-sm font-semibold text-slate-200 transition hover:bg-white/10"
+                  >
+                    ↓ Export JSON
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => downloadReport("csv", true)}
+                    className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm font-semibold text-amber-300 transition hover:bg-amber-500/20"
+                  >
+                    ↓ Discrepancies only
+                  </button>
+                </div>
+
+                <p className="mt-4 text-xs text-slate-500">
+                  CSV includes transaction identifiers, amounts,
+                  reason codes, and explanations.
+                  JSON contains the complete reconciliation report.
+                </p>
+              </section>
+            )}
 
             <section className="mt-10 overflow-hidden rounded-2xl border border-white/10 bg-[#111827]">
               <div className="flex flex-wrap items-start justify-between gap-4 border-b border-white/10 px-6 py-6">
